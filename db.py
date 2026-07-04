@@ -25,17 +25,25 @@ def init() -> None:
             symbol     TEXT    NOT NULL,
             direction  TEXT    NOT NULL,   -- '>' or '<'
             target     REAL    NOT NULL,
+            lang       TEXT    NOT NULL DEFAULT 'en',
             created_at TEXT    NOT NULL DEFAULT (datetime('now'))
         )
         """
     )
+    # Migration for databases created before the lang column existed.
+    try:
+        _get().execute("ALTER TABLE alarms ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     _get().commit()
 
 
-def add_alarm(chat_id: int, symbol: str, direction: str, target: float) -> int:
+def add_alarm(
+    chat_id: int, symbol: str, direction: str, target: float, lang: str = "en"
+) -> int:
     cur = _get().execute(
-        "INSERT INTO alarms (chat_id, symbol, direction, target) VALUES (?, ?, ?, ?)",
-        (chat_id, symbol, direction, target),
+        "INSERT INTO alarms (chat_id, symbol, direction, target, lang) VALUES (?, ?, ?, ?, ?)",
+        (chat_id, symbol, direction, target, lang),
     )
     _get().commit()
     return cur.lastrowid

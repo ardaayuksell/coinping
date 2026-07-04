@@ -8,6 +8,8 @@ public API — no API key, no account, no cost.
 
 - **Live prices** — `/price BTC` returns the current Binance price for any pair
 - **Price alarms** — `/alarm BTC > 70000` pings you when a level is crossed
+- **Tap to delete** — alarms are listed with inline delete buttons
+- **Bilingual** — auto-detects the client language, replies in Turkish or English
 - **Per-user alarms** — each chat manages its own alarms, stored in SQLite
 - **Automatic checks** — a background job polls prices every 30 seconds
 - **Zero config** — bare tickers default to USDT pairs (`BTC` → `BTCUSDT`)
@@ -19,8 +21,8 @@ public API — no API key, no account, no cost.
 | `/start`, `/help` | Show the welcome message |
 | `/price BTC` | Current price of a symbol |
 | `/alarm BTC > 70000` | Alert when the price crosses above/below a level |
-| `/alarms` | List your active alarms |
-| `/delalarm <id>` | Delete an alarm |
+| `/alarms` | List your alarms with tap-to-delete buttons |
+| `/delalarm <id>` | Delete an alarm by id |
 
 ## Setup
 

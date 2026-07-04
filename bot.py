@@ -6,9 +6,14 @@ import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
 import db
 from prices import PriceError, fmt, get_price, normalize_symbol
@@ -27,52 +32,114 @@ logger = logging.getLogger("coinping")
 # Matches "BTC > 70000", "btc>70000", "ETH < 2500.5"
 ALARM_RE = re.compile(r"^([A-Za-z0-9/\-]+)\s*([<>])\s*([0-9]*\.?[0-9]+)$")
 
-WELCOME = (
-    "👋 *Welcome to CoinPing!*\n"
-    "I watch crypto prices and ping you when they hit your target.\n\n"
-    "*Commands*\n"
-    "`/price BTC` — current price\n"
-    "`/alarm BTC > 70000` — alert when it crosses a level\n"
-    "`/alarms` — list your active alarms\n"
-    "`/delalarm <id>` — remove an alarm\n"
-    "`/help` — show this message\n\n"
-    "_Prices from Binance. Bare tickers default to USDT (BTC → BTCUSDT)._"
-)
+MESSAGES = {
+    "en": {
+        "welcome": (
+            "👋 *Welcome to CoinPing!*\n"
+            "I watch crypto prices and ping you when they hit your target.\n\n"
+            "*Commands*\n"
+            "`/price BTC` — current price\n"
+            "`/alarm BTC > 70000` — alert when it crosses a level\n"
+            "`/alarms` — list & delete your alarms\n"
+            "`/help` — show this message\n\n"
+            "_Prices from Binance. Bare tickers default to USDT (BTC → BTCUSDT)._"
+        ),
+        "price_usage": "Usage: `/price BTC`",
+        "unknown_symbol": "❌ Unknown symbol: {sym}",
+        "unavailable": "⚠️ Price service unavailable, try again.",
+        "price_line": "💰 *{sym}*: {price}",
+        "alarm_usage": "Usage: `/alarm <SYMBOL> <> <price>`\nExample: `/alarm BTC > 70000`",
+        "alarm_set": "✅ Alarm *#{id}* set: *{sym}* {word} *{target}*\nCurrent price: {price}",
+        "above": "above",
+        "below": "below",
+        "no_alarms": "No active alarms. Set one with `/alarm BTC > 70000`",
+        "alarms_title": "*Your alarms* — tap 🗑 to delete:",
+        "deleted": "🗑 Alarm #{id} deleted.",
+        "no_such": "No such alarm.",
+        "delalarm_usage": "Usage: `/delalarm <id>` (see `/alarms`)",
+        "fired": "🔔 *{sym}* is {word} *{target}*!\nNow: *{price}*",
+        "fired_above": "📈 above",
+        "fired_below": "📉 below",
+    },
+    "tr": {
+        "welcome": (
+            "👋 *CoinPing'e hoş geldin!*\n"
+            "Kripto fiyatlarını izlerim, hedefe ulaşınca sana ping atarım.\n\n"
+            "*Komutlar*\n"
+            "`/price BTC` — anlık fiyat\n"
+            "`/alarm BTC > 70000` — seviye geçilince bildirim\n"
+            "`/alarms` — alarmlarını listele & sil\n"
+            "`/help` — bu mesaj\n\n"
+            "_Fiyatlar Binance'ten. Sade yazarsan USDT paritesi alınır (BTC → BTCUSDT)._"
+        ),
+        "price_usage": "Kullanım: `/price BTC`",
+        "unknown_symbol": "❌ Bilinmeyen sembol: {sym}",
+        "unavailable": "⚠️ Fiyat servisi şu an yanıt vermiyor, tekrar dene.",
+        "price_line": "💰 *{sym}*: {price}",
+        "alarm_usage": "Kullanım: `/alarm <SEMBOL> <> <fiyat>`\nÖrnek: `/alarm BTC > 70000`",
+        "alarm_set": "✅ Alarm *#{id}* kuruldu: *{sym}* {target} {word}\nŞu anki fiyat: {price}",
+        "above": "üstüne çıkınca",
+        "below": "altına inince",
+        "no_alarms": "Aktif alarmın yok. Kurmak için: `/alarm BTC > 70000`",
+        "alarms_title": "*Alarmların* — silmek için 🗑 dokun:",
+        "deleted": "🗑 Alarm #{id} silindi.",
+        "no_such": "Böyle bir alarm yok.",
+        "delalarm_usage": "Kullanım: `/delalarm <id>` (liste için `/alarms`)",
+        "fired": "🔔 *{sym}* hedefi vurdu: *{target}* {word}!\nŞu an: *{price}*",
+        "fired_above": "📈 üstünde",
+        "fired_below": "📉 altında",
+    },
+}
+
+
+def get_lang(update: Update) -> str:
+    """Pick TR for Turkish clients, EN for everyone else."""
+    user = update.effective_user
+    code = (user.language_code or "") if user else ""
+    return "tr" if code.startswith("tr") else "en"
+
+
+def t(lang: str, key: str, **kw) -> str:
+    return MESSAGES.get(lang, MESSAGES["en"])[key].format(**kw)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(WELCOME, parse_mode=ParseMode.MARKDOWN)
-
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(WELCOME, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(
+        t(get_lang(update), "welcome"), parse_mode=ParseMode.MARKDOWN
+    )
 
 
 async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(update)
     if not context.args:
-        await update.message.reply_text("Usage: `/price BTC`", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            t(lang, "price_usage"), parse_mode=ParseMode.MARKDOWN
+        )
         return
     symbol = normalize_symbol(context.args[0])
     try:
         price = await get_price(symbol)
     except PriceError:
-        await update.message.reply_text(f"❌ Unknown symbol: {context.args[0].upper()}")
+        await update.message.reply_text(
+            t(lang, "unknown_symbol", sym=context.args[0].upper())
+        )
         return
     except Exception:
         logger.exception("price fetch failed")
-        await update.message.reply_text("⚠️ Price service unavailable, try again.")
+        await update.message.reply_text(t(lang, "unavailable"))
         return
     await update.message.reply_text(
-        f"💰 *{symbol}*: {fmt(price)}", parse_mode=ParseMode.MARKDOWN
+        t(lang, "price_line", sym=symbol, price=fmt(price)),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
 async def alarm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(update)
     match = ALARM_RE.match(" ".join(context.args).strip())
     if not match:
         await update.message.reply_text(
-            "Usage: `/alarm <SYMBOL> <> <price>`\nExample: `/alarm BTC > 70000`",
-            parse_mode=ParseMode.MARKDOWN,
+            t(lang, "alarm_usage"), parse_mode=ParseMode.MARKDOWN
         )
         return
     base, direction, target_str = match.groups()
@@ -82,48 +149,75 @@ async def alarm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         current = await get_price(symbol)  # validates the symbol exists
     except PriceError:
-        await update.message.reply_text(f"❌ Unknown symbol: {base.upper()}")
+        await update.message.reply_text(t(lang, "unknown_symbol", sym=base.upper()))
         return
     except Exception:
         logger.exception("price fetch failed")
-        await update.message.reply_text("⚠️ Price service unavailable, try again.")
+        await update.message.reply_text(t(lang, "unavailable"))
         return
 
-    alarm_id = db.add_alarm(update.effective_chat.id, symbol, direction, target)
-    arrow = "above" if direction == ">" else "below"
+    alarm_id = db.add_alarm(update.effective_chat.id, symbol, direction, target, lang)
+    word = t(lang, "above" if direction == ">" else "below")
     await update.message.reply_text(
-        f"✅ Alarm *#{alarm_id}* set: *{symbol}* {arrow} *{fmt(target)}*\n"
-        f"Current price: {fmt(current)}",
+        t(
+            lang,
+            "alarm_set",
+            id=alarm_id,
+            sym=symbol,
+            word=word,
+            target=fmt(target),
+            price=fmt(current),
+        ),
         parse_mode=ParseMode.MARKDOWN,
     )
 
 
-async def alarms_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    rows = db.list_alarms(update.effective_chat.id)
+def _alarms_view(chat_id: int, lang: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Build the alarm list text plus one delete button per alarm."""
+    rows = db.list_alarms(chat_id)
     if not rows:
-        await update.message.reply_text(
-            "No active alarms. Set one with `/alarm BTC > 70000`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-    lines = ["*Your alarms:*"]
+        return t(lang, "no_alarms"), None
+    lines = [t(lang, "alarms_title")]
+    buttons = []
     for a in rows:
-        lines.append(f"`#{a['id']}`  {a['symbol']} {a['direction']} {fmt(a['target'])}")
-    lines.append("\nDelete with `/delalarm <id>`")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        label = f"#{a['id']}  {a['symbol']} {a['direction']} {fmt(a['target'])}"
+        lines.append(f"`{label}`")
+        buttons.append([InlineKeyboardButton(f"🗑 {label}", callback_data=f"del:{a['id']}")])
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+async def alarms_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(update)
+    text, keyboard = _alarms_view(update.effective_chat.id, lang)
+    await update.message.reply_text(
+        text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard
+    )
+
+
+async def on_delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(update)
+    alarm_id = int(query.data.split(":", 1)[1])
+    db.delete_alarm(alarm_id, query.message.chat_id)
+    text, keyboard = _alarms_view(query.message.chat_id, lang)
+    await query.edit_message_text(
+        text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard
+    )
 
 
 async def delalarm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(update)
     if not context.args or not context.args[0].isdigit():
         await update.message.reply_text(
-            "Usage: `/delalarm <id>` (see `/alarms`)", parse_mode=ParseMode.MARKDOWN
+            t(lang, "delalarm_usage"), parse_mode=ParseMode.MARKDOWN
         )
         return
     removed = db.delete_alarm(int(context.args[0]), update.effective_chat.id)
     if removed:
-        await update.message.reply_text(f"🗑️ Alarm #{context.args[0]} deleted.")
+        await update.message.reply_text(t(lang, "deleted", id=context.args[0]))
     else:
-        await update.message.reply_text("No such alarm.")
+        await update.message.reply_text(t(lang, "no_such"))
 
 
 async def check_alarms(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -147,12 +241,17 @@ async def check_alarms(context: ContextTypes.DEFAULT_TYPE) -> None:
             a["direction"] == "<" and price <= a["target"]
         )
         if hit:
-            arrow = "📈 above" if a["direction"] == ">" else "📉 below"
+            lang = a.get("lang", "en")
+            word = t(lang, "fired_above" if a["direction"] == ">" else "fired_below")
             await context.bot.send_message(
                 chat_id=a["chat_id"],
-                text=(
-                    f"🔔 *{a['symbol']}* is {arrow} *{fmt(a['target'])}*!\n"
-                    f"Now: *{fmt(price)}*"
+                text=t(
+                    lang,
+                    "fired",
+                    sym=a["symbol"],
+                    word=word,
+                    target=fmt(a["target"]),
+                    price=fmt(price),
                 ),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -168,11 +267,12 @@ def main() -> None:
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("price", price_cmd))
     app.add_handler(CommandHandler("alarm", alarm_cmd))
     app.add_handler(CommandHandler("alarms", alarms_cmd))
     app.add_handler(CommandHandler("delalarm", delalarm_cmd))
+    app.add_handler(CallbackQueryHandler(on_delete_button, pattern=r"^del:\d+$"))
 
     app.job_queue.run_repeating(check_alarms, interval=CHECK_INTERVAL, first=10)
 
