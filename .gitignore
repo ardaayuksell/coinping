@@ -1,0 +1,16 @@
+# Secrets — never commit
+.env
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Logs (may contain the token in request URLs)
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

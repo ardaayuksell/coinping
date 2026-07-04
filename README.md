@@ -1,0 +1,61 @@
+# CoinPing 🔔
+
+A lightweight Telegram bot that watches cryptocurrency prices and pings you the
+moment they cross a target you set. Built with async Python and the Binance
+public API — no API key, no account, no cost.
+
+## Features
+
+- **Live prices** — `/price BTC` returns the current Binance price for any pair
+- **Price alarms** — `/alarm BTC > 70000` pings you when a level is crossed
+- **Per-user alarms** — each chat manages its own alarms, stored in SQLite
+- **Automatic checks** — a background job polls prices every 30 seconds
+- **Zero config** — bare tickers default to USDT pairs (`BTC` → `BTCUSDT`)
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `/start`, `/help` | Show the welcome message |
+| `/price BTC` | Current price of a symbol |
+| `/alarm BTC > 70000` | Alert when the price crosses above/below a level |
+| `/alarms` | List your active alarms |
+| `/delalarm <id>` | Delete an alarm |
+
+## Setup
+
+```bash
+# 1. Install dependencies
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+
+# 2. Configure your token
+copy .env.example .env        # Windows  (cp on macOS/Linux)
+# then edit .env and paste the token from @BotFather
+
+# 3. Run
+python bot.py
+```
+
+## Tech stack
+
+- [python-telegram-bot](https://python-telegram-bot.org/) (async, with JobQueue)
+- [httpx](https://www.python-httpx.org/) for async HTTP
+- SQLite (WAL mode) for alarm storage
+- Binance public REST API for prices
+
+## Project structure
+
+```
+coinping/
+├── bot.py       # Handlers, background job, entry point
+├── prices.py    # Binance price fetching + symbol normalisation
+├── db.py        # SQLite alarm storage
+└── requirements.txt
+```
+
+## License
+
+MIT
