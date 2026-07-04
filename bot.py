@@ -1,5 +1,6 @@
 """CoinPing — a Telegram bot that pings you when crypto prices hit your target."""
 
+import asyncio
 import logging
 import os
 import re
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -16,7 +17,12 @@ from telegram.ext import (
 )
 
 import db
-from prices import PriceError, fmt, get_price, normalize_symbol
+from chart import render_candles
+from prices import PriceError, fmt, get_klines, get_price, normalize_symbol
+
+# Valid Binance intervals we expose via /chart
+CHART_INTERVALS = {"15m", "1h", "4h", "1d"}
+CHART_LIMIT = 24
 
 load_dotenv(Path(__file__).parent / ".env")
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -39,6 +45,7 @@ MESSAGES = {
             "I watch crypto prices and ping you when they hit your target.\n\n"
             "*Commands*\n"
             "`/price BTC` — current price\n"
+            "`/chart BTC` — 24h candlestick chart\n"
             "`/alarm BTC > 70000` — alert when it crosses a level\n"
             "`/alarms` — list & delete your alarms\n"
             "`/help` — show this message\n\n"
@@ -48,6 +55,7 @@ MESSAGES = {
         "unknown_symbol": "❌ Unknown symbol: {sym}",
         "unavailable": "⚠️ Price service unavailable, try again.",
         "price_line": "💰 *{sym}*: {price}",
+        "chart_caption": "📊 *{sym}* · {n}×{interval}\n💰 {price} · 24h {change} {emoji}",
         "alarm_usage": "Usage: `/alarm <SYMBOL> <> <price>`\nExample: `/alarm BTC > 70000`",
         "alarm_set": "✅ Alarm *#{id}* set: *{sym}* {word} *{target}*\nCurrent price: {price}",
         "above": "above",
@@ -67,6 +75,7 @@ MESSAGES = {
             "Kripto fiyatlarını izlerim, hedefe ulaşınca sana ping atarım.\n\n"
             "*Komutlar*\n"
             "`/price BTC` — anlık fiyat\n"
+            "`/chart BTC` — 24 saatlik mum grafiği\n"
             "`/alarm BTC > 70000` — seviye geçilince bildirim\n"
             "`/alarms` — alarmlarını listele & sil\n"
             "`/help` — bu mesaj\n\n"
@@ -76,6 +85,7 @@ MESSAGES = {
         "unknown_symbol": "❌ Bilinmeyen sembol: {sym}",
         "unavailable": "⚠️ Fiyat servisi şu an yanıt vermiyor, tekrar dene.",
         "price_line": "💰 *{sym}*: {price}",
+        "chart_caption": "📊 *{sym}* · {n}×{interval}\n💰 {price} · 24s {change} {emoji}",
         "alarm_usage": "Kullanım: `/alarm <SEMBOL> <> <fiyat>`\nÖrnek: `/alarm BTC > 70000`",
         "alarm_set": "✅ Alarm *#{id}* kuruldu: *{sym}* {target} {word}\nŞu anki fiyat: {price}",
         "above": "üstüne çıkınca",
@@ -131,6 +141,47 @@ async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         t(lang, "price_line", sym=symbol, price=fmt(price)),
         parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(update)
+    base = context.args[0] if context.args else "BTC"
+    interval = "1h"
+    if len(context.args) >= 2 and context.args[1].lower() in CHART_INTERVALS:
+        interval = context.args[1].lower()
+    symbol = normalize_symbol(base)
+
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
+    try:
+        candles = await get_klines(symbol, interval, CHART_LIMIT)
+    except PriceError:
+        await update.message.reply_text(t(lang, "unknown_symbol", sym=base.upper()))
+        return
+    except Exception:
+        logger.exception("klines fetch failed")
+        await update.message.reply_text(t(lang, "unavailable"))
+        return
+
+    # Rendering is CPU-bound; keep it off the event loop.
+    png = await asyncio.get_running_loop().run_in_executor(
+        None, render_candles, symbol, candles, interval
+    )
+
+    change_pct = (candles[-1]["close"] - candles[0]["open"]) / candles[0]["open"] * 100
+    emoji = "🟢" if change_pct >= 0 else "🔴"
+    caption = t(
+        lang,
+        "chart_caption",
+        sym=symbol,
+        n=len(candles),
+        interval=interval,
+        price=fmt(candles[-1]["close"]),
+        change=f"{change_pct:+.2f}%",
+        emoji=emoji,
+    )
+    await update.message.reply_photo(
+        photo=png, caption=caption, parse_mode=ParseMode.MARKDOWN
     )
 
 
@@ -269,6 +320,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("price", price_cmd))
+    app.add_handler(CommandHandler("chart", chart_cmd))
     app.add_handler(CommandHandler("alarm", alarm_cmd))
     app.add_handler(CommandHandler("alarms", alarms_cmd))
     app.add_handler(CommandHandler("delalarm", delalarm_cmd))

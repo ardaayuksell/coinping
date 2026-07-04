@@ -3,6 +3,7 @@
 import httpx
 
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
+BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
 
 # Quote assets we recognise when a user types a full pair like "ETHBTC".
 QUOTES = ("USDT", "USDC", "FDUSD", "BUSD", "TRY")
@@ -34,6 +35,31 @@ async def get_price(symbol: str) -> float:
         raise PriceError(f"Unknown symbol: {symbol}")
     resp.raise_for_status()
     return float(resp.json()["price"])
+
+
+async def get_klines(symbol: str, interval: str = "1h", limit: int = 24) -> list[dict]:
+    """Return recent OHLC candles for a Binance symbol.
+
+    Each candle is a dict with time (ms), open, high, low, close.
+    """
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            BINANCE_KLINES,
+            params={"symbol": symbol, "interval": interval, "limit": limit},
+        )
+    if resp.status_code == 400:
+        raise PriceError(f"Unknown symbol: {symbol}")
+    resp.raise_for_status()
+    return [
+        {
+            "time": k[0],
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+        }
+        for k in resp.json()
+    ]
 
 
 def fmt(value: float) -> str:

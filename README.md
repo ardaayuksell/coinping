@@ -4,9 +4,14 @@ A lightweight Telegram bot that watches cryptocurrency prices and pings you the
 moment they cross a target you set. Built with async Python and the Binance
 public API — no API key, no account, no cost.
 
+![CoinPing candlestick chart](docs/chart-example.png)
+
+> `/chart BTC` renders a live 24-hour candlestick chart, right inside the chat.
+
 ## Features
 
 - **Live prices** — `/price BTC` returns the current Binance price for any pair
+- **Candlestick charts** — `/chart BTC` sends a dark-themed 24h chart as an image
 - **Price alarms** — `/alarm BTC > 70000` pings you when a level is crossed
 - **Tap to delete** — alarms are listed with inline delete buttons
 - **Bilingual** — auto-detects the client language, replies in Turkish or English
@@ -20,6 +25,7 @@ public API — no API key, no account, no cost.
 |---|---|
 | `/start`, `/help` | Show the welcome message |
 | `/price BTC` | Current price of a symbol |
+| `/chart BTC [15m\|1h\|4h\|1d]` | 24-candle chart image (default `1h`) |
 | `/alarm BTC > 70000` | Alert when the price crosses above/below a level |
 | `/alarms` | List your alarms with tap-to-delete buttons |
 | `/delalarm <id>` | Delete an alarm by id |
@@ -45,6 +51,7 @@ python bot.py
 
 - [python-telegram-bot](https://python-telegram-bot.org/) (async, with JobQueue)
 - [httpx](https://www.python-httpx.org/) for async HTTP
+- [matplotlib](https://matplotlib.org/) (headless) for candlestick charts
 - SQLite (WAL mode) for alarm storage
 - Binance public REST API for prices
 
@@ -53,7 +60,8 @@ python bot.py
 ```
 coinping/
 ├── bot.py       # Handlers, background job, entry point
-├── prices.py    # Binance price fetching + symbol normalisation
+├── prices.py    # Binance price + kline fetching, symbol normalisation
+├── chart.py     # Candlestick chart rendering (matplotlib)
 ├── db.py        # SQLite alarm storage
 └── requirements.txt
 ```
