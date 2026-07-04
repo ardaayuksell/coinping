@@ -1,4 +1,8 @@
-# CoinPing 🔔
+<p align="center">
+  <img src="docs/logo.png" width="120" alt="CoinPing logo">
+</p>
+
+<h1 align="center">CoinPing 🔔</h1>
 
 A lightweight Telegram bot that watches cryptocurrency prices and pings you the
 moment they cross a target you set. Built with async Python and the Binance
